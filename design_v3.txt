@@ -2,41 +2,39 @@ main changes from v1
 1. mcp instead of a custom ui
     - claude desktop is the auditor's interface, tools pull data on demand
 2. views instead of stored booleans
-    - match status is derived from current data, never saved
+    - match status is derived from current data, so the data never goes stale
 3. event-based instead of polling
-    - auditor questions trigger the work
+    - llm calls are made on-demand by auditors
 
 components
 0. ingest - filename prefix classifies each pdf (po, invoice, gr, email, memo, amendment, shipping)
 - dedupe by file checksum so re-runs are safe
-- store raw text for everything; extraction happens later
+- store raw text for everything
 
 1. extract
 - financial docs (po/invoice/gr): pull header fields + line items
-  - headers and line items stored separately — real docs are multi-line
+  - headers and line items stored separately — some docs are multi-line
 - supporting docs (email/memo/amendment/shipping): pull date, po mentions, vendor guess
 - every doc keeps its raw text for later citation
 
 2. link supporting docs to orders
 - explicit po mention = high confidence
 - same vendor + nearby date = medium confidence fallback
-- every link records method + confidence (audit trust)
+- every supporting doc linked records linking method + confidence 
 
 3. triple match
-- derived from the data on every query, never stored
-  - stored match flags drift when underlying docs change
+- derived from the data on every query
 - status = matched / discrepancy / awaiting_invoice / awaiting_gr
 
 4. discrepancy investigation
-- auditor asks claude a question (chat, not a dashboard)
+- auditor asks claude a question
 - claude pulls the relevant po + invoice + gr + supporting docs on demand
 - explanation comes with citations back to specific lines in the source docs
-- no background polling agent — auditor drives the pace
 
 5. feedback loop
 - auditor marks analyses correct / incorrect / adds reasoning
 - corrections become labeled examples for future similar cases
-- retrieval over the growing example set, not model fine-tuning
+- in the future, we could do retrieval of similar cases 
 
 what's deferred
 - batch analyzer
