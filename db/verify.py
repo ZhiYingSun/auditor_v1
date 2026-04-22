@@ -1,5 +1,4 @@
-"""Sanity-check that the schema was applied.
-
+"""
 Prints the list of tables, views, and row counts. Exits non-zero if any
 expected object is missing.
 """

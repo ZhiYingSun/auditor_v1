@@ -1,0 +1,78 @@
+design v2
+
+changes from v1
+- match status is a derived view, not a stored boolean
+  - v1 put triple_match bool on the order row; that drifts when docs change
+  - v_triple_match recomputes from financial_docs + line_items on every query
+- line items live in their own table
+  - v1 assumed one item per doc; real POs have multi-line tabular formats
+  - financial_docs is header-only, line_items FK'd to it
+- no monitoring agent, no polling
+  - v1 had an agent polling the db for triple_match=false
+  - replaced with MCP tools claude calls on demand — auditor-triggered, not clock-triggered
+- ui is claude desktop (v1), not a custom webapp
+  - auditor opens claude desktop, asks "what discrepancies exist?", claude calls the tools
+  - defer custom ui until workflow actually demands it
+
+components
+0. ingest (pipeline/ingest.py)
+- filename prefix -> doc_type (PO-, INV-, GR-, EMAIL-, MEMO-, AMENDMENT-, SHIPPING-)
+- sha256 checksum unique key — re-runs skip existing files
+- pdfplumber -> raw_text into documents table
+- extractor_version stamped on each row so we can reprocess later
+
+1. extract financial (pipeline/extract_financial.py)
+- only runs on doc_type IN ('po','invoice','gr')
+- two formats handled: labeled (single-item) and tabular (multi-item)
+- writes header fields to financial_docs, each line to line_items
+- GR tabular has 3 cols (item, ordered, received) — we store received as the canonical quantity
+- idempotent via left-join-is-null check; --reset flag for dev iteration
+
+2. extract supporting (pipeline/extract_supporting.py)
+- runs on doc_type IN ('email','memo','amendment','shipping','unknown')
+- deterministic v1: date from filename regex, po_mentions from \bPO-\d+\b, vendor_guess from filename slug vs known vendors
+- summary left null — llm can fill later if analyzer needs it
+
+3. link supporting docs (pipeline/link_supporting.py)
+- priority: explicit_reference (po_mentions match known po, confidence=1.0)
+- fallback: vendor_date (same vendor + within +/-14 days, confidence=0.7)
+- ON CONFLICT DO NOTHING on (supporting_id, po_number) — idempotent
+- document_links is the audit-grade provenance table: every link records method + confidence
+
+4. triple match (db view)
+- v_triple_match CTE aggregates: po_qty, inv_qty, gr_qty, po_total, inv_total
+- status in {matched, discrepancy, awaiting_invoice, awaiting_gr}
+- per-line comparison intentionally NOT in the view — summing across heterogeneous items is rough; leave that to the llm
+
+5. mcp server (optional/mcp_scaffold/server.py)
+- 5 read-only tools backing the audit workflow:
+  - list_pos           — overview of every po + match status
+  - get_discrepancies  — only broken ones, with computed deltas
+  - get_po_detail      — header + lines + invoice + gr + match row (one call)
+  - get_supporting_docs — linked emails/memos/amendments with raw_text for citation
+  - search_documents   — fts across everything (GIN index on tsvector)
+- wired into claude desktop via claude_desktop_config.json
+- paired with off-the-shelf postgres mcp for ad-hoc sql (read-only role in v1)
+
+6. auditor workflow
+- auditor opens claude desktop
+- "what needs investigating?" -> get_discrepancies
+- "tell me about PO-4011" -> get_po_detail + get_supporting_docs
+- claude cites specific sentences from the linked email/memo/amendment
+- auditor approves or corrects; corrections land in document_links as method='auditor_corrected'
+
+feedback loop
+- discrepancy_analyses table caches (po_number, classification, citations, confidence, input_hash)
+- auditor corrections become labeled examples — few-shot retrieved for similar future cases
+- retrieval over growing labeled set
+
+deterministic / llm boundary
+- deterministic (sql + regex): ingest, extract, link, match status
+- llm (via mcp on demand): discrepancy explanation, supporting-doc interpretation, citation
+
+what v1 doesn't do yet
+- batch discrepancy analyzer — mcp handles this interactively for now
+- file watcher for ongoing ingestion
+- write tools in mcp (auditor_corrected links, human-in-the-loop corrections)
+- per-line qty matching in the view
+
