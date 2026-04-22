@@ -1,0 +1,18 @@
+components
+0. order classifer - groups all the relevant files for a specific order - invoice, .. + supporting documents
+1. pdf parsing -> takes the financial documents and parses it for important fields such as quantity, price, etc
+- parses the pdf
+- creates db entries for each order - additional field for supporting document names + triple match boolean
+- sql db since data is fairly structured
+2. monitoring agent - polls for db updates and looks at orders where triple match is false
+- identify the discrepncy
+- it pulls the supporting documents to see if it can figure out the reasoning for the discrepancy + confident level
+3. surface discrepencies to auditor with the reasonings + confidence level
+- auditor to write their own reasoning + agent analysis is correct
+- track TPs FPs reasoning -> feedback to train the agent
+4. UI
+- all orders
+- orders with discrepncy
+- orders with dis agent cannot figure out
+- reaosning
+- links to all the relevant files - auditor easily access and check for themselves
